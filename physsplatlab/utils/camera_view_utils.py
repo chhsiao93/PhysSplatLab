@@ -288,6 +288,76 @@ def create_rotating_cameras(
     return cameras
 
 
+def create_look_at_camera(
+    eye,
+    center,
+    up,
+    fov_deg: float = 60.0,
+    width: int = 800,
+    height: int = 600,
+) -> MiniCam:
+    """
+    Create a camera from a position, look-at point, and up vector.
+
+    Uses the COLMAP/3DGS camera convention:
+        +X = right,  +Y = down (image row direction),  +Z = forward
+
+    Args:
+        eye: Camera position in world space, shape (3,)
+        center: World-space point the camera looks at
+        up: World up vector (e.g. [0, 0, 1] for Z-up, [0, 1, 0] for Y-up)
+        fov_deg: Horizontal field of view in **degrees** (default: 60.0)
+        width: Image width in pixels (default: 800)
+        height: Image height in pixels (default: 600)
+
+    Returns:
+        MiniCam instance ready for use with GaussianSplatRenderer
+
+    Example:
+        >>> cam = create_look_at_camera(
+        ...     eye=[0.2, 0.2, 1.0],
+        ...     center=[0.0, 0.0, 0.0],
+        ...     up=[0.0, 0.0, 1.0],
+        ...     fov_deg=60.0,
+        ... )
+        >>> image = renderer.render(cam, splats)
+    """
+    eye = np.array(eye, dtype=np.float64)
+    center = np.array(center, dtype=np.float64)
+    up = np.array(up, dtype=np.float64)
+
+    # Camera +Z: points from eye toward center
+    forward = center - eye
+    forward /= np.linalg.norm(forward)
+
+    # Camera +Y: world-down projected onto the plane perpendicular to forward.
+    # (3DGS camera Y = image row direction = downward in world.)
+    world_down = -up / np.linalg.norm(up)
+    cam_y = world_down - np.dot(world_down, forward) * forward
+    cam_y /= np.linalg.norm(cam_y)
+
+    # Camera +X: cross(Y, Z) for a right-handed system
+    right = np.cross(cam_y, forward)
+    right /= np.linalg.norm(right)
+
+    # Build C2W: columns are camera axes expressed in world space
+    C2W = np.eye(4)
+    C2W[:3, 0] = right    # camera +X
+    C2W[:3, 1] = cam_y   # camera +Y (down)
+    C2W[:3, 2] = forward  # camera +Z
+    C2W[:3, 3] = eye      # camera position
+
+    W2C = np.linalg.inv(C2W)
+
+    # Convert FoV from degrees to radians; adjust vertical FoV for aspect ratio
+    focal = width / (2.0 * np.tan(np.deg2rad(fov_deg) / 2.0))
+    fovx = focal2fov(focal, width)
+    fovy = focal2fov(focal, height)
+
+    # make_camera expects R_c2w = W2C[:3,:3].T and T_w2c = W2C[:3, 3]
+    return make_camera(W2C[:3, :3].T, W2C[:3, 3], fovx, fovy, width, height)
+
+
 def camera_from_colmap(
     sparse_path: str,
     image_index: int,
