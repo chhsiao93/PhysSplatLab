@@ -12,7 +12,7 @@
 **1. Clone the repository with submodules**
 
 ```bash
-git clone --recurse-submodules <repo-url>
+git clone --recurse-submodules git@github.com:chhsiao93/PhysSplatLab.git
 cd PhysSplatLab
 ```
 

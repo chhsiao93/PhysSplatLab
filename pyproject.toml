@@ -25,6 +25,9 @@ dependencies = [
 # simple-knn, fused-ssim) are NOT listed here — they import torch at build
 # time and must be installed after torch via: make install  or  ./install.sh
 
+[tool.setuptools.packages.find]
+include = ["physsplatlab*"]
+
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
