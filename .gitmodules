@@ -1,0 +1,6 @@
+[submodule "warp-mpm"]
+	path = warp-mpm
+	url = git@github.com:chhsiao93/warp-mpm.git
+[submodule "gaussian-splatting"]
+	path = gaussian-splatting
+	url = git@github.com:chhsiao93/gaussian-splatting.git
