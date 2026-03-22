@@ -1,0 +1,36 @@
+[project]
+name = "physsplatlab"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # PyTorch — CUDA 12.8, sm_120 (RTX 5090 Blackwell) support added in 2.8
+    "torch>=2.8.0",
+    "torchvision",
+    "torchaudio",
+    # gaussian-splatting deps
+    "plyfile",
+    "tqdm",
+    "opencv-python",
+    "joblib",
+    # warp-mpm deps (1.x adds CUDA 12.x + Blackwell support)
+    "h5py",
+    "warp-lang>=1.4.0",
+    # required by CUDA extension build scripts (used with --no-build-isolation)
+    "setuptools",
+]
+
+# NOTE: gaussian-splatting CUDA extensions (diff-gaussian-rasterization,
+# simple-knn, fused-ssim) are NOT listed here — they import torch at build
+# time and must be installed after torch via: make install  or  ./install.sh
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
