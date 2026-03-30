@@ -16,9 +16,11 @@ dependencies = [
     "joblib",
     # warp-mpm deps (1.x adds CUDA 12.x + Blackwell support)
     "h5py",
-    "warp-lang>=1.4.0",
+    "warp-lang==1.10.1",
+    "imageio[ffmpeg]",
     # required by CUDA extension build scripts (used with --no-build-isolation)
     "setuptools",
+    "matplotlib>=3.10.8",
 ]
 
 # NOTE: gaussian-splatting CUDA extensions (diff-gaussian-rasterization,

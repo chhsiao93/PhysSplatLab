@@ -295,6 +295,7 @@ def create_look_at_camera(
     fov_deg: float = 60.0,
     width: int = 800,
     height: int = 600,
+    device: str = "cuda",
 ) -> MiniCam:
     """
     Create a camera from a position, look-at point, and up vector.
@@ -355,7 +356,7 @@ def create_look_at_camera(
     fovy = focal2fov(focal, height)
 
     # make_camera expects R_c2w = W2C[:3,:3].T and T_w2c = W2C[:3, 3]
-    return make_camera(W2C[:3, :3].T, W2C[:3, 3], fovx, fovy, width, height)
+    return make_camera(W2C[:3, :3].T, W2C[:3, 3], fovx, fovy, width, height, device=device)
 
 
 def camera_from_colmap(

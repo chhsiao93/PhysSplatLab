@@ -100,16 +100,17 @@ class GaussianSplatRenderer:
             splats.positions, requires_grad=False, device=splats.device
         )
 
-        color, radii, invdepths = rasterizer(
-            means3D=splats.positions,
-            means2D=screenspace_points,
-            shs=splats.shs,
-            colors_precomp=None,
-            opacities=splats.opacities,
-            scales=None,
-            rotations=None,
-            cov3D_precomp=splats.covariances,
-        )
+        with torch.cuda.device(splats.device):
+            color, radii, invdepths = rasterizer(
+                means3D=splats.positions,
+                means2D=screenspace_points,
+                shs=splats.shs,
+                colors_precomp=None,
+                opacities=splats.opacities,
+                scales=None,
+                rotations=None,
+                cov3D_precomp=splats.covariances,
+            )
 
         return color.clamp(0.0, 1.0)
 

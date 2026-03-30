@@ -475,6 +475,67 @@ class GaussianSplatManager:
         return self
 
     @classmethod
+    def merge(
+        cls,
+        splat_a: "GaussianSplatManager",
+        splat_b: "GaussianSplatManager",
+        device: str = None
+    ) -> "GaussianSplatManager":
+        """
+        Merge two GaussianSplatManagers by concatenating their splats.
+
+        If the two managers have different SH coefficient counts (K), the one with
+        fewer coefficients is zero-padded to match the larger.
+
+        Args:
+            splat_a: First GaussianSplatManager
+            splat_b: Second GaussianSplatManager
+            device: Device for the merged result. Defaults to splat_a's device.
+
+        Returns:
+            New GaussianSplatManager containing all splats from both inputs
+
+        Example:
+            >>> merged = GaussianSplatManager.merge(splat_a, splat_b)
+            >>> print(f"Merged: {len(splat_a)} + {len(splat_b)} = {len(merged)} splats")
+        """
+        target_device = device or splat_a.device
+
+        positions_a = splat_a.positions.to(target_device)
+        positions_b = splat_b.positions.to(target_device)
+
+        covariances_a = splat_a.covariances.to(target_device)
+        covariances_b = splat_b.covariances.to(target_device)
+
+        if covariances_a.shape[1:] != covariances_b.shape[1:]:
+            raise ValueError(
+                f"Covariance shapes are incompatible: {covariances_a.shape} vs {covariances_b.shape}"
+            )
+
+        opacities_a = splat_a.opacities.to(target_device)
+        opacities_b = splat_b.opacities.to(target_device)
+
+        shs_a = splat_a.shs.to(target_device)
+        shs_b = splat_b.shs.to(target_device)
+
+        # Pad SHs along the coefficient axis if degrees differ
+        k_a, k_b = shs_a.shape[1], shs_b.shape[1]
+        if k_a < k_b:
+            pad = torch.zeros(shs_a.shape[0], k_b - k_a, shs_a.shape[2], device=target_device)
+            shs_a = torch.cat([shs_a, pad], dim=1)
+        elif k_b < k_a:
+            pad = torch.zeros(shs_b.shape[0], k_a - k_b, shs_b.shape[2], device=target_device)
+            shs_b = torch.cat([shs_b, pad], dim=1)
+
+        return cls(
+            positions=torch.cat([positions_a, positions_b], dim=0),
+            covariances=torch.cat([covariances_a, covariances_b], dim=0),
+            opacities=torch.cat([opacities_a, opacities_b], dim=0),
+            shs=torch.cat([shs_a, shs_b], dim=0),
+            device=target_device
+        )
+
+    @classmethod
     def from_ply(
         cls,
         ply_path: str,
