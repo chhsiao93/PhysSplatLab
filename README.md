@@ -14,11 +14,23 @@
 
   `pyproject.toml` picks the right PyTorch index automatically based on
   `platform_machine`, so no manual edits are needed there. On Vista, make
-  sure `nvcc` is on `PATH` before installing and before running anything
-  (warp-lang JIT-compiles kernels at runtime too):
+  sure `nvcc` and a compatible host compiler are on `PATH` before installing
+  and before running anything (warp-lang JIT-compiles kernels at runtime
+  too):
 
   ```bash
   module load cuda/12.6
+  module load gcc/13.2.0   # NOT the default gcc (15.1.0) or the nvidia/nvc++
+                            # toolchain that's loaded by default on the GH
+                            # nodes — CUDA 12.6's nvcc only supports GCC up
+                            # to 13.x as a host compiler
+  which nvcc gcc g++       # sanity check before installing
+  ```
+
+  If `CC`/`CXX` are already exported to something else in your shell, unset
+  or override them after loading the modules above:
+  ```bash
+  export CC=$(which gcc) CXX=$(which g++)
   ```
 
 ## Setup
@@ -70,6 +82,21 @@ This will:
 ```bash
 source .venv/bin/activate
 ```
+
+**Run scripts with plain `python`, not `uv run`.** The gaussian-splatting
+CUDA extensions (`diff-gaussian-rasterization`, `simple-knn`, `fused-ssim`)
+are intentionally not listed in `pyproject.toml`'s dependencies (see the
+NOTE there) since they need `torch` already installed before they can be
+built. Because of that, `uv run` — which auto-syncs the environment against
+`pyproject.toml` first — will uninstall them before running your script. Use:
+
+```bash
+python examples/01_load_and_render.py
+```
+
+not `uv run examples/01_load_and_render.py`. If you do need `uv run`
+(e.g. to also pick up a newly added dependency), pass `--no-sync`, or just
+rerun `./install.sh` / `make install` afterwards to rebuild the extensions.
 
 ## Examples
 

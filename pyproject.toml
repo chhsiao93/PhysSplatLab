@@ -29,6 +29,15 @@ dependencies = [
 # NOTE: gaussian-splatting CUDA extensions (diff-gaussian-rasterization,
 # simple-knn, fused-ssim) are NOT listed here — they import torch at build
 # time and must be installed after torch via: make install  or  ./install.sh
+#
+# Because they're not project dependencies, plain `uv sync` (which `uv run`
+# triggers automatically) will treat them as unnecessary and uninstall them.
+# Run scripts with plain `python` after activating .venv, not `uv run` — see
+# README.md. (We tried moving them into `dependencies` with
+# `no-build-isolation-package` + the experimental `extra-build-dependencies`
+# to fix this properly, but on a from-scratch install uv still tries to build
+# them before torch exists in the same sync pass — see
+# https://docs.astral.sh/uv/reference/settings/#extra-build-dependencies.)
 
 [tool.setuptools.packages.find]
 include = ["physsplatlab*"]
