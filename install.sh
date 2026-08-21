@@ -4,6 +4,9 @@ set -e
 # Base install: torch, warp-lang, and all other deps
 uv sync
 
+# Patch upstream submodule bugs we can't push upstream (see patches/)
+./scripts/apply-patches.sh
+
 # Build and install CUDA extensions.
 # Default targets sm_120 (RTX 5090); override for other GPUs, e.g.
 #   TORCH_CUDA_ARCH_LIST=9.0 ./install.sh   # GH200 / Hopper (TACC Vista)
