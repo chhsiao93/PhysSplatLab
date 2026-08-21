@@ -44,3 +44,9 @@ This will:
 ```bash
 source .venv/bin/activate
 ```
+
+## Examples
+
+See [examples/](examples/) for runnable scripts covering the core API:
+loading and rendering a splat, orbiting a camera around a scene into a video,
+and running an MPM physics simulation with per-region material assignment.

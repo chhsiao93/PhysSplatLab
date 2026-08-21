@@ -81,7 +81,8 @@ class GaussianSplatRenderer:
         camera,
         splats: GaussianSplatManager,
         scaling_modifier: float = 1.0,
-    ) -> torch.Tensor:
+        render_depth: bool = False,
+    ) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         """
         Render splats from a camera viewpoint.
 
@@ -89,9 +90,12 @@ class GaussianSplatRenderer:
             camera: GSCamera object
             splats: GaussianSplatManager instance
             scaling_modifier: Uniform scale applied to all splat sizes (default: 1.0)
+            render_depth: If True, also return a (1, H, W) depth tensor (default: False)
 
         Returns:
-            Rendered image as (3, H, W) float tensor in [0, 1]
+            Rendered image as (3, H, W) float tensor in [0, 1], or a
+            (color, depth) tuple where depth is a (1, H, W) float tensor in meters
+            if render_depth is True. Pixels with no splat contribution have depth 0.
         """
         raster_settings = self._build_raster_settings(camera, scaling_modifier)
         rasterizer = GaussianRasterizer(raster_settings=raster_settings)
@@ -112,14 +116,19 @@ class GaussianSplatRenderer:
                 cov3D_precomp=splats.covariances,
             )
 
-        return color.clamp(0.0, 1.0)
+        if not render_depth:
+            return color.clamp(0.0, 1.0)
+
+        depth = torch.where(invdepths > 0, 1.0 / invdepths, torch.zeros_like(invdepths))
+        return color.clamp(0.0, 1.0), depth
 
     def render(
         self,
         camera,
         splats: GaussianSplatManager,
         scaling_modifier: float = 1.0,
-    ) -> np.ndarray:
+        render_depth: bool = False,
+    ) -> Union[np.ndarray, tuple[np.ndarray, np.ndarray]]:
         """
         Render splats from a camera viewpoint.
 
@@ -127,11 +136,21 @@ class GaussianSplatRenderer:
             camera: GSCamera object
             splats: GaussianSplatManager instance
             scaling_modifier: Uniform scale applied to all splat sizes (default: 1.0)
+            render_depth: If True, also return a (H, W) float32 depth array in meters
+                          (default: False). Pixels with no splat contribution have depth 0.
 
         Returns:
-            Rendered image as (H, W, 3) uint8 numpy array
+            Rendered image as (H, W, 3) uint8 numpy array, or a (image, depth) tuple
+            where depth is a (H, W) float32 numpy array if render_depth is True.
         """
-        tensor = self.render_tensor(camera, splats, scaling_modifier)
-        image = tensor.detach().cpu().numpy()
-        image = np.transpose(image, (1, 2, 0))
-        return (image * 255).astype(np.uint8)
+        result = self.render_tensor(camera, splats, scaling_modifier, render_depth)
+
+        if not render_depth:
+            image = result.detach().cpu().numpy()
+            image = np.transpose(image, (1, 2, 0))
+            return (image * 255).astype(np.uint8)
+
+        color_tensor, depth_tensor = result
+        image = np.transpose(color_tensor.detach().cpu().numpy(), (1, 2, 0))
+        depth = depth_tensor.squeeze(0).detach().cpu().numpy()
+        return (image * 255).astype(np.uint8), depth

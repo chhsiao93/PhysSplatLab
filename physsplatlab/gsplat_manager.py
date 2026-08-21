@@ -6,6 +6,7 @@ including positions, covariances, opacities, and spherical harmonics (SHs).
 """
 
 import os
+import warnings
 import torch
 import numpy as np
 from typing import Optional, Union, Tuple
@@ -24,6 +25,8 @@ from .utils.transformation_utils import (
     apply_inverse_cov_rotations,
     get_mat_from_upper,
     get_uppder_from_mat,
+    matrix_to_quaternion,
+    quaternion_multiply,
 )
 
 
@@ -39,6 +42,8 @@ class GaussianSplatManager:
         covariances (torch.Tensor): Splat covariances (N, 6) or (N, 3, 3)
         opacities (torch.Tensor): Splat opacities (N, 1)
         shs (torch.Tensor): Spherical harmonics coefficients (N, K, 3)
+        scales (torch.Tensor | None): Activated scales (N, 3), populated by from_ply
+        rotations (torch.Tensor | None): Normalized quaternions (N, 4) [w,x,y,z], populated by from_ply
         device (str): Device where tensors are stored ('cuda' or 'cpu')
         num_splats (int): Number of splats
     """
@@ -49,7 +54,9 @@ class GaussianSplatManager:
         covariances: Union[torch.Tensor, np.ndarray],
         opacities: Union[torch.Tensor, np.ndarray],
         shs: Union[torch.Tensor, np.ndarray],
-        device: str = "cuda"
+        device: str = "cuda",
+        scales: Optional[Union[torch.Tensor, np.ndarray]] = None,
+        rotations: Optional[Union[torch.Tensor, np.ndarray]] = None,
     ):
         """
         Initialize the GaussianSplatManager with splat data.
@@ -60,6 +67,8 @@ class GaussianSplatManager:
             opacities: Splat opacities (N, 1)
             shs: Spherical harmonics coefficients (N, K, 3)
             device: Device to store tensors on ('cuda' or 'cpu')
+            scales: Activated scales (N, 3), optional — populated by from_ply
+            rotations: Normalized quaternions (N, 4) [w,x,y,z], optional — populated by from_ply
         """
         self.device = device
 
@@ -68,6 +77,8 @@ class GaussianSplatManager:
         self.covariances = self._to_tensor(covariances)
         self.opacities = self._to_tensor(opacities)
         self.shs = self._to_tensor(shs)
+        self.scales = self._to_tensor(scales) if scales is not None else None
+        self.rotations = self._to_tensor(rotations) if rotations is not None else None
 
         # Validate dimensions
         self._validate_dimensions()
@@ -112,6 +123,12 @@ class GaussianSplatManager:
         if self.shs.shape[0] != n:
             raise ValueError(f"SHs first dimension {self.shs.shape[0]} "
                            f"doesn't match positions {n}")
+
+        if self.scales is not None and self.scales.shape != (n, 3):
+            raise ValueError(f"scales must have shape (N, 3), got {self.scales.shape}")
+
+        if self.rotations is not None and self.rotations.shape != (n, 4):
+            raise ValueError(f"rotations must have shape (N, 4), got {self.rotations.shape}")
 
     @property
     def num_splats(self) -> int:
@@ -173,7 +190,9 @@ class GaussianSplatManager:
             covariances=self.covariances.clone(),
             opacities=self.opacities.clone(),
             shs=self.shs.clone(),
-            device=self.device
+            device=self.device,
+            scales=self.scales.clone() if self.scales is not None else None,
+            rotations=self.rotations.clone() if self.rotations is not None else None,
         )
 
     def to(self, device: str) -> "GaussianSplatManager":
@@ -191,6 +210,10 @@ class GaussianSplatManager:
         self.covariances = self.covariances.to(device)
         self.opacities = self.opacities.to(device)
         self.shs = self.shs.to(device)
+        if self.scales is not None:
+            self.scales = self.scales.to(device)
+        if self.rotations is not None:
+            self.rotations = self.rotations.to(device)
         return self
 
     def to_numpy(self) -> dict:
@@ -200,12 +223,17 @@ class GaussianSplatManager:
         Returns:
             Dictionary with numpy arrays
         """
-        return {
+        result = {
             "positions": self.positions.detach().cpu().numpy(),
             "covariances": self.covariances.detach().cpu().numpy(),
             "opacities": self.opacities.detach().cpu().numpy(),
-            "shs": self.shs.detach().cpu().numpy()
+            "shs": self.shs.detach().cpu().numpy(),
         }
+        if self.scales is not None:
+            result["scales"] = self.scales.detach().cpu().numpy()
+        if self.rotations is not None:
+            result["rotations"] = self.rotations.detach().cpu().numpy()
+        return result
 
     def apply_mask(
         self,
@@ -245,6 +273,8 @@ class GaussianSplatManager:
         filtered_covariances = self.covariances[mask]
         filtered_opacities = self.opacities[mask]
         filtered_shs = self.shs[mask]
+        filtered_scales = self.scales[mask] if self.scales is not None else None
+        filtered_rotations = self.rotations[mask] if self.rotations is not None else None
 
         if inplace:
             # Modify this instance
@@ -252,6 +282,8 @@ class GaussianSplatManager:
             self.covariances = filtered_covariances
             self.opacities = filtered_opacities
             self.shs = filtered_shs
+            self.scales = filtered_scales
+            self.rotations = filtered_rotations
             return self
         else:
             # Return new instance
@@ -260,7 +292,9 @@ class GaussianSplatManager:
                 covariances=filtered_covariances,
                 opacities=filtered_opacities,
                 shs=filtered_shs,
-                device=self.device
+                device=self.device,
+                scales=filtered_scales,
+                rotations=filtered_rotations,
             )
 
     def filter_by_bounds(
@@ -343,6 +377,14 @@ class GaussianSplatManager:
             else:
                 raise ValueError(f"Unsupported covariance shape: {self.covariances.shape}")
 
+            # Compose rotation into stored quaternions if present
+            if self.rotations is not None:
+                R_composite = torch.eye(3, device=self.device)
+                for mat in rotation_matrices:
+                    R_composite = mat.to(self.device) @ R_composite
+                q_R = matrix_to_quaternion(R_composite.unsqueeze(0)).expand(len(self.rotations), -1)
+                self.rotations = quaternion_multiply(q_R, self.rotations)
+
         return self
 
     def inverse_rotate(
@@ -400,6 +442,15 @@ class GaussianSplatManager:
                 self.covariances = cov_mat
             else:
                 raise ValueError(f"Unsupported covariance shape: {self.covariances.shape}")
+
+            # Compose inverse rotation into stored quaternions if present
+            if self.rotations is not None:
+                R_composite = torch.eye(3, device=self.device)
+                for i in range(len(rotation_matrices)):
+                    R = rotation_matrices[len(rotation_matrices) - 1 - i]
+                    R_composite = R.to(self.device).T @ R_composite
+                q_R = matrix_to_quaternion(R_composite.unsqueeze(0)).expand(len(self.rotations), -1)
+                self.rotations = quaternion_multiply(q_R, self.rotations)
 
         return self
 
@@ -527,12 +578,27 @@ class GaussianSplatManager:
             pad = torch.zeros(shs_b.shape[0], k_a - k_b, shs_b.shape[2], device=target_device)
             shs_b = torch.cat([shs_b, pad], dim=1)
 
+        # Merge scales/rotations: concatenate if both have them, else drop with a warning
+        if splat_a.scales is not None and splat_b.scales is not None:
+            scales_merged = torch.cat([splat_a.scales.to(target_device), splat_b.scales.to(target_device)], dim=0)
+        else:
+            scales_merged = None
+            if splat_a.scales is not None or splat_b.scales is not None:
+                warnings.warn("One operand is missing scales/rotations; merged result will have scales=None, rotations=None.")
+
+        if splat_a.rotations is not None and splat_b.rotations is not None:
+            rotations_merged = torch.cat([splat_a.rotations.to(target_device), splat_b.rotations.to(target_device)], dim=0)
+        else:
+            rotations_merged = None
+
         return cls(
             positions=torch.cat([positions_a, positions_b], dim=0),
             covariances=torch.cat([covariances_a, covariances_b], dim=0),
             opacities=torch.cat([opacities_a, opacities_b], dim=0),
             shs=torch.cat([shs_a, shs_b], dim=0),
-            device=target_device
+            device=target_device,
+            scales=scales_merged,
+            rotations=rotations_merged,
         )
 
     @classmethod
@@ -578,14 +644,17 @@ class GaussianSplatManager:
         positions = gaussians.get_xyz.detach()
         opacities = gaussians.get_opacity.detach()
         shs = gaussians.get_features.detach()
-
         covariances = gaussians.get_covariance(scaling_modifier=1.0).detach()
+        scales = gaussians.get_scaling.detach()    # (N, 3) activated (exp applied)
+        rotations = gaussians.get_rotation.detach()  # (N, 4) normalized quaternion [w,x,y,z]
 
         print(f"Loaded {positions.shape[0]} Gaussian splats")
         print(f"  Positions: {positions.shape}")
         print(f"  Covariances: {covariances.shape}")
         print(f"  Opacities: {opacities.shape}")
         print(f"  SHs: {shs.shape}")
+        print(f"  Scales: {scales.shape}")
+        print(f"  Rotations: {rotations.shape}")
 
         # Create instance
         return cls(
@@ -593,5 +662,105 @@ class GaussianSplatManager:
             covariances=covariances,
             opacities=opacities,
             shs=shs,
-            device=device
+            device=device,
+            scales=scales,
+            rotations=rotations,
         )
+
+    def save_ply(self, path: str) -> None:
+        """
+        Save Gaussian splats to a standard 3DGS PLY file.
+
+        Requires the splat to have been loaded via from_ply() so that raw
+        scales and rotations are available. The output is compatible with
+        standard 3DGS viewers and can be reloaded with from_ply().
+
+        Args:
+            path: Output path for the PLY file
+
+        Raises:
+            ValueError: If scales or rotations are not available (e.g. loaded via from_dict)
+
+        Example:
+            >>> splats = GaussianSplatManager.from_ply("input.ply", sh_degree=3)
+            >>> splats.save_ply("output.ply")
+        """
+        if self.scales is None or self.rotations is None:
+            raise ValueError(
+                "save_ply requires raw scales and rotations. "
+                "Load the splat via from_ply() to populate them."
+            )
+
+        from plyfile import PlyData, PlyElement
+
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+
+        xyz = self.positions.detach().cpu().numpy()           # (N, 3)
+        normals = np.zeros_like(xyz)                          # (N, 3)
+
+        # DC SH: shs[:, 0:1, :] -> (N, 1, 3) -> transpose -> (N, 3, 1) -> flatten -> (N, 3)
+        f_dc = self.shs[:, 0:1, :].detach().transpose(1, 2).flatten(start_dim=1).cpu().numpy()
+
+        # Rest SH: shs[:, 1:, :] -> (N, K-1, 3) -> transpose -> (N, 3, K-1) -> flatten -> (N, 3*(K-1))
+        f_rest = self.shs[:, 1:, :].detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+
+        # Inverse sigmoid for opacity
+        opacities_clamped = self.opacities.clamp(1e-6, 1.0 - 1e-6)
+        opacity_raw = torch.log(opacities_clamped / (1.0 - opacities_clamped)).detach().cpu().numpy()
+
+        # Inverse exp for scales
+        scales_raw = torch.log(self.scales.clamp(min=1e-8)).detach().cpu().numpy()
+
+        # Rotations are already normalized quaternions
+        rotations_np = self.rotations.detach().cpu().numpy()
+
+        # Build dtype matching standard 3DGS PLY format
+        attribute_names = ['x', 'y', 'z', 'nx', 'ny', 'nz']
+        attribute_names += [f'f_dc_{i}' for i in range(3)]
+        attribute_names += [f'f_rest_{i}' for i in range(f_rest.shape[1])]
+        attribute_names += ['opacity']
+        attribute_names += [f'scale_{i}' for i in range(3)]
+        attribute_names += [f'rot_{i}' for i in range(4)]
+        dtype_full = [(attr, 'f4') for attr in attribute_names]
+
+        N = xyz.shape[0]
+        elements = np.empty(N, dtype=dtype_full)
+        attributes = np.concatenate(
+            [xyz, normals, f_dc, f_rest, opacity_raw, scales_raw, rotations_np],
+            axis=1,
+        )
+        elements[:] = list(map(tuple, attributes))
+
+        el = PlyElement.describe(elements, 'vertex')
+        PlyData([el]).write(path)
+        print(f"Saved {N} Gaussian splats to: {path}")
+
+    def recover_scales_rotations(self) -> "GaussianSplatManager":
+        """
+        Recover raw scales and rotations by eigendecomposing the stored covariances.
+
+        This is the inverse of the covariance computation:
+            Σ = R · diag(s²) · Rᵀ  →  eigh(Σ) gives eigenvalues s² and eigenvectors R
+
+        Useful for synthetic splats (e.g. created via from_dict with pre-computed
+        covariances) that need to be saved as a standard PLY via save_ply().
+
+        Returns:
+            Self for method chaining
+
+        Example:
+            >>> flood_splats.recover_scales_rotations()
+            >>> merged.recover_scales_rotations()
+            >>> merged.save_ply("output.ply")
+        """
+        cov_mat = get_mat_from_upper(self.covariances)  # (N, 3, 3)
+        # Replace NaN/Inf rows (e.g. inactive MPM particles) with a tiny isotropic fallback
+        bad = ~torch.isfinite(cov_mat).all(dim=-1).all(dim=-1)  # (N,)
+        if bad.any():
+            eps = 1e-8
+            cov_mat[bad] = torch.eye(3, device=cov_mat.device, dtype=cov_mat.dtype) * eps
+        # eigh assumes symmetric matrix and returns eigenvalues in ascending order
+        eigenvalues, eigenvectors = torch.linalg.eigh(cov_mat)  # (N,3), (N,3,3)
+        self.scales = eigenvalues.clamp(min=0.0).sqrt()          # (N, 3)
+        self.rotations = matrix_to_quaternion(eigenvectors)      # (N, 4) [w,x,y,z]
+        return self

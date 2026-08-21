@@ -21,6 +21,8 @@ dependencies = [
     # required by CUDA extension build scripts (used with --no-build-isolation)
     "setuptools",
     "matplotlib>=3.10.8",
+    "scipy>=1.17.1",
+    "rasterio>=1.4.4",
 ]
 
 # NOTE: gaussian-splatting CUDA extensions (diff-gaussian-rasterization,
