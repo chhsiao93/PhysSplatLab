@@ -33,11 +33,26 @@ dependencies = [
 include = ["physsplatlab*"]
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu128" }
-torchvision = { index = "pytorch-cu128" }
-torchaudio = { index = "pytorch-cu128" }
+# x86_64 (lambda, RTX 5090 sm_120) -> CUDA 12.8; aarch64 (TACC Vista, GH200 sm_90) -> CUDA 12.6
+torch = [
+    { index = "pytorch-cu128", marker = "platform_machine == 'x86_64'" },
+    { index = "pytorch-cu126", marker = "platform_machine == 'aarch64'" },
+]
+torchvision = [
+    { index = "pytorch-cu128", marker = "platform_machine == 'x86_64'" },
+    { index = "pytorch-cu126", marker = "platform_machine == 'aarch64'" },
+]
+torchaudio = [
+    { index = "pytorch-cu128", marker = "platform_machine == 'x86_64'" },
+    { index = "pytorch-cu126", marker = "platform_machine == 'aarch64'" },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
 explicit = true
