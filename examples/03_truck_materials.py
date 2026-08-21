@@ -38,7 +38,7 @@ wp.init()
 wp.config.verify_cuda = False
 device = "cuda:0"
 
-ply_path = "data/truck/truck_trimmed.ply"
+ply_path = "examples/ply/truck_trimmed.ply"
 out_path = "output/examples/03_truck_materials.mp4"
 
 splats = GaussianSplatManager.from_ply(ply_path, sh_degree=3, device=device)

@@ -15,7 +15,7 @@ from physsplatlab import GaussianSplatManager, GaussianSplatRenderer
 from physsplatlab.utils.camera_view_utils import create_rotating_cameras
 
 device = "cuda:0"
-ply_path = "output/ply/hicss_flood_input_scene.ply"
+ply_path = "examples/ply/hicss_flood_input_scene.ply"
 out_path = "output/examples/02_orbit.mp4"
 
 splats = GaussianSplatManager.from_ply(ply_path, sh_degree=3, device=device)

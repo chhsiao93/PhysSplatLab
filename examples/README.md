@@ -16,8 +16,8 @@ the repo:
 
 | File | Used by |
 | --- | --- |
-| `output/ply/hicss_flood_input_scene.ply` | 01, 02 |
-| `data/truck/truck_trimmed.ply` | 03 |
+| `examples/ply/hicss_flood_input_scene.ply` | 01, 02 |
+| `examples/ply/truck_trimmed.ply` | 03 |
 
 Outputs are written to `output/examples/`.
 

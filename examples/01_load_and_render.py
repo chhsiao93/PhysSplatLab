@@ -15,7 +15,7 @@ from physsplatlab import GaussianSplatManager, GaussianSplatRenderer
 from physsplatlab.utils.camera_view_utils import create_look_at_camera
 
 device = "cuda:0"
-ply_path = "output/ply/hicss_flood_input_scene.ply"
+ply_path = "examples/ply/hicss_flood_input_scene.ply"
 out_path = "output/examples/01_snapshot.png"
 
 # Load the scene splats from a trained 3DGS PLY checkpoint.
