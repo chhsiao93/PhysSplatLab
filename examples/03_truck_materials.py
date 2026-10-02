@@ -20,7 +20,7 @@ Usage:
 
 import sys
 from pathlib import Path
-
+import os
 import imageio
 import torch
 from tqdm import tqdm
@@ -39,7 +39,9 @@ wp.config.verify_cuda = False
 device = "cuda:0"
 
 ply_path = "examples/ply/truck_trimmed.ply"
-out_path = "output/examples/03_truck_materials.mp4"
+out_dir = "output/examples"
+os.makedirs(out_dir, exist_ok=True)
+out_path = f"{out_dir}/03_truck_materials.mp4"
 
 splats = GaussianSplatManager.from_ply(ply_path, sh_degree=3, device=device)
 

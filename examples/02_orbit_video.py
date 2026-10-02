@@ -10,13 +10,15 @@ Usage:
 
 import imageio
 from tqdm import tqdm
-
+import os
 from physsplatlab import GaussianSplatManager, GaussianSplatRenderer
 from physsplatlab.utils.camera_view_utils import create_rotating_cameras
 
 device = "cuda:0"
 ply_path = "examples/ply/hicss_flood_input_scene.ply"
-out_path = "output/examples/02_orbit.mp4"
+out_dir = "output/examples"
+os.makedirs(out_dir, exist_ok=True)
+out_path = f"{out_dir}/02_orbit.mp4"
 
 splats = GaussianSplatManager.from_ply(ply_path, sh_degree=3, device=device)
 renderer = GaussianSplatRenderer(sh_degree=3, bg_color="white", device=device)

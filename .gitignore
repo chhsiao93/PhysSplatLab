@@ -2,11 +2,5 @@
 __pycache__/
 physsplatlab.egg-info
 
-data/*
-!data/truck/
-data/truck/*
-!data/truck/truck_trimmed.ply
-
-output/*
-!output/examples/
-output/examples/*
+data/
+output/
