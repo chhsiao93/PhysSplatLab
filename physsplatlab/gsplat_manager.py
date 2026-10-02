@@ -27,6 +27,7 @@ from .utils.transformation_utils import (
     get_uppder_from_mat,
     matrix_to_quaternion,
     quaternion_multiply,
+    rotate_shs,
 )
 
 
@@ -452,6 +453,74 @@ class GaussianSplatManager:
                 q_R = matrix_to_quaternion(R_composite.unsqueeze(0)).expand(len(self.rotations), -1)
                 self.rotations = quaternion_multiply(q_R, self.rotations)
 
+        return self
+
+    def apply_similarity_transform(
+        self,
+        transform: Union[torch.Tensor, np.ndarray],
+    ) -> "GaussianSplatManager":
+        """
+        Apply a 4x4 similarity transform x' = s * R @ x + t in place, updating
+        every Gaussian attribute consistently so the scene renders the same
+        from correspondingly transformed cameras:
+
+            positions    s * R @ x + t
+            covariances  s^2 * R Σ R^T
+            scales       s * scales
+            rotations    q_R ⊗ q
+            shs          bands 1-3 rotated by R (view-dependent color follows
+                         the scene); DC unchanged
+            opacities    unchanged
+
+        Typical use: undo gsplat's --normalize-world-space, i.e. pass the
+        inverse of the transform from recover_gsplat_world_transform.py to
+        bring splats from normalized training space into aligned ENU meters.
+
+        Args:
+            transform: (4, 4) similarity matrix (uniform scale, proper rotation)
+
+        Returns:
+            Self for method chaining
+
+        Example:
+            >>> T = np.array(json.load(open("gsplat_world_transform.json"))["transform"])
+            >>> splats.apply_similarity_transform(np.linalg.inv(T))  # normalized -> ENU
+        """
+        T = torch.as_tensor(np.asarray(transform) if not isinstance(transform, torch.Tensor) else transform,
+                            dtype=torch.float64).cpu()
+        if T.shape != (4, 4):
+            raise ValueError(f"transform must be (4, 4), got {tuple(T.shape)}")
+
+        A, t = T[:3, :3], T[:3, 3]
+        det = torch.linalg.det(A)
+        if det <= 0:
+            raise ValueError("transform contains a reflection (det <= 0); "
+                             "quaternions and SH rotation can't represent it")
+        s = det ** (1.0 / 3.0)
+        R = A / s
+        if not torch.allclose(R @ R.T, torch.eye(3, dtype=R.dtype), atol=1e-5):
+            raise ValueError("transform is not a similarity (non-uniform scale or shear)")
+
+        dt = self.positions.dtype
+        R_d, t_d = R.to(self.device, dt), t.to(self.device, dt)
+        s = float(s)
+
+        self.positions = s * self.positions @ R_d.T + t_d
+
+        if self.covariances.shape[1:] == (3, 3):
+            self.covariances = (s ** 2) * apply_cov_rotation(self.covariances, R_d)
+        elif self.covariances.shape[1] == 6:
+            self.covariances = (s ** 2) * apply_cov_rotations(self.covariances, [R_d])
+        else:
+            raise ValueError(f"Unsupported covariance shape: {self.covariances.shape}")
+
+        if self.scales is not None:
+            self.scales = s * self.scales
+        if self.rotations is not None:
+            q_R = matrix_to_quaternion(R_d.unsqueeze(0)).expand(len(self.rotations), -1)
+            self.rotations = quaternion_multiply(q_R, self.rotations)
+
+        self.shs = rotate_shs(self.shs, R)
         return self
 
     def transform_to_mpm_space(

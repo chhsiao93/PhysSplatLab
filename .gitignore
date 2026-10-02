@@ -8,6 +8,5 @@ data/truck/*
 !data/truck/truck_trimmed.ply
 
 output/*
-!output/ply/
-output/ply/*
-!output/ply/hicss_flood_input_scene.ply
+!output/examples/
+output/examples/*

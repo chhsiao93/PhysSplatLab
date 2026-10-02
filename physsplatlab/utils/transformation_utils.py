@@ -222,6 +222,65 @@ def quaternion_multiply(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
     return F.normalize(torch.stack([w, x, y, z], dim=1), dim=1)
 
 
+def _sh_basis(dirs: torch.Tensor) -> torch.Tensor:
+    """Real SH basis Y_k(d), k = 1..15 (bands 1-3), in the exact sign/order
+    convention of gaussian-splatting's eval_sh. dirs: (S, 3) unit vectors."""
+    C1 = 0.4886025119029199
+    C2 = [1.0925484305920792, -1.0925484305920792, 0.31539156525252005,
+          -1.0925484305920792, 0.5462742152960396]
+    C3 = [-0.5900435899266435, 2.890611442640554, -0.4570457994644658,
+          0.3731763325901154, -0.4570457994644658, 1.445305721320277,
+          -0.5900435899266435]
+    x, y, z = dirs[:, 0], dirs[:, 1], dirs[:, 2]
+    xx, yy, zz = x * x, y * y, z * z
+    return torch.stack([
+        -C1 * y, C1 * z, -C1 * x,
+        C2[0] * x * y, C2[1] * y * z, C2[2] * (2 * zz - xx - yy), C2[3] * x * z, C2[4] * (xx - yy),
+        C3[0] * y * (3 * xx - yy), C3[1] * x * y * z, C3[2] * y * (4 * zz - xx - yy),
+        C3[3] * z * (2 * zz - 3 * xx - 3 * yy), C3[4] * x * (4 * zz - xx - yy),
+        C3[5] * z * (xx - yy), C3[6] * x * (xx - 3 * yy),
+    ], dim=1)
+
+
+def rotate_shs(shs: torch.Tensor, R: torch.Tensor) -> torch.Tensor:
+    """Rotate SH coefficients so view-dependent color follows a rigid rotation R
+    of the scene: new_color(d) == old_color(R^T d).
+
+    Each band l mixes only within itself, Y_l(R^T d) = M_l Y_l(d), so the new
+    coefficients are M_l^T c_l. M_l is solved by least squares on sampled
+    directions (exact up to float error), which keeps it tied to the same basis
+    convention as the rasterizer instead of a hand-derived Wigner-D.
+
+    Args:
+        shs: (N, K, 3) coefficients, K in {1, 4, 9, 16}; DC (k=0) is unchanged
+        R: (3, 3) proper rotation (det +1)
+
+    Returns:
+        (N, K, 3) rotated coefficients
+    """
+    K = shs.shape[1]
+    if K == 1:
+        return shs
+    if K not in (4, 9, 16):
+        raise ValueError(f"rotate_shs supports SH degree <= 3 (K in 1/4/9/16), got K={K}")
+
+    gen = torch.Generator().manual_seed(0)
+    dirs = F.normalize(torch.randn(256, 3, generator=gen, dtype=torch.float64), dim=1)
+    R = R.detach().to(torch.float64).cpu()
+    A = _sh_basis(dirs)        # Y(d)        (S, 15)
+    B = _sh_basis(dirs @ R)    # Y(R^T d)    (S, 15): row d^T R == (R^T d)^T
+
+    out = shs.clone()
+    for lo, hi in ((1, 4), (4, 9), (9, 16)):
+        if hi > K:
+            break
+        # B_l = A_l M_l^T  ->  X = M_l^T
+        X = torch.linalg.lstsq(A[:, lo - 1:hi - 1], B[:, lo - 1:hi - 1]).solution
+        X = X.to(device=shs.device, dtype=shs.dtype)
+        out[:, lo:hi] = torch.einsum("ij,njc->nic", X, shs[:, lo:hi])
+    return out
+
+
 # input must be (n,3) tensor on cuda
 def undo_all_transforms(input, rotation_matrices, scale_origin, original_mean_pos):
     return apply_inverse_rotations(
